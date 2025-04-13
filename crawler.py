@@ -4,7 +4,7 @@ import requests
 import httpx
 import bs4
 import re
-import pymysql as pms
+import pymysql
 import random
 import time
 from config import *
@@ -95,38 +95,64 @@ def get_movie_info(movie_soup, number, movie_url):
     # 从详情页提取电影完整信息
     try:
         # 排名已经从列表页提取
-        print(f"电影排名: {number}")
+        # 不在这里打印，只在函数最后汇总打印
         
         # 获取电影标题
         title = movie_soup.find('span', attrs={"property": "v:itemreviewed"}).text.strip()
-        print(f"电影标题: {title}")
         
         # 获取电影年份
         year = movie_soup.find('span', attrs={"class": "year"}).text.strip()
-        print(f"电影年份: {year}")
         # 获取电影评分
         rating_elem = movie_soup.find('strong', attrs={"class": "ll rating_num", "property": "v:average"})
         rating = rating_elem.text.strip() if rating_elem else "0.0"
-        print(f"电影评分: {rating}")
         
         # 获取电影评论数
         votes_elem = movie_soup.find('span', attrs={"property": "v:votes"})
         comments = votes_elem.text.strip() if votes_elem else "0"
-        print(f"电影评论数: {comments}")
         
-        # 获取电影评分权重 - 设置默认值
-        weight = "0%"
-        weight_div = movie_soup.find('div', attrs={"class": "rating_per"})
-        if weight_div:
-            weight = weight_div.text.strip()
-        print(f"电影评分权重: {weight}")
+        # 获取电影评分权重 - 提取所有星级的权重
+        weight_dict = {}
+        weight_wrapper = movie_soup.find('div', attrs={"class": "ratings-on-weight"})
+        if weight_wrapper:
+            # 查找所有星级评分权重项
+            weight_items = weight_wrapper.find_all('div', attrs={"class": "item"})
+            
+            for item in weight_items:
+                # 星级名称（如"5星"）
+                star_elem = item.find('span', attrs={"class": "rating_per"})
+                # 该星级的占比
+                percentage = star_elem.text.strip() if star_elem else "0%"
+                
+                # 星级数字（从前面得到）
+                star_count_elem = item.find('span', {'class': lambda x: x and x.startswith('star')})
+                if star_count_elem:
+                    star_class = star_count_elem.get('class', [])
+                    star_level = ''
+                    for cl in star_class:
+                        if cl.startswith('star'):
+                            star_level = cl.replace('star', '') + '星'  # 增加"星"字
+                            break
+                    
+                    if star_level:
+                        weight_dict[star_level] = percentage
+            
+            # 将字典转换为字符串形式
+            if weight_dict:
+                weight = " | ".join([f"{k}: {v}" for k, v in weight_dict.items()])
+            else:
+                weight = "0%"  # 默认值
         
         # 获取同类电影排名
-        similar = ""
+        similar_list = []
         betterthan = movie_soup.find('div', attrs={"class": "rating_betterthan"})
-        if betterthan and betterthan.find('a'):
-            similar = betterthan.find('a').text.strip()
-        print(f"同类电影排名: {similar}")
+        if betterthan:
+            # 提取所有同类电影排名信息
+            similar_a_tags = betterthan.find_all('a')
+            if similar_a_tags:
+                similar_list = [a.text.strip() for a in similar_a_tags]
+                similar = ", ".join(similar_list)  # 将多个排名用逗号连接
+            else:
+                similar = ""
         
         # 获取电影信息区域
         info_div = movie_soup.find('div', attrs={"id": "info"})
@@ -152,19 +178,16 @@ def get_movie_info(movie_soup, number, movie_url):
         if info_div:
             # 提取电影类型
             types = [t.text.strip() for t in info_div.find_all('span', attrs={"property": "v:genre"})]
-            print(f"电影类型: {types}")
             
             # 专门提取上映日期
             release_dates = info_div.find_all('span', attrs={"property": "v:initialReleaseDate"})
             if release_dates:
                 release_date = [date.text.strip() for date in release_dates]
-                print(f"上映日期: {release_date}")
             
             # 专门提取片长
             runtime_span = info_div.find('span', attrs={"property": "v:runtime"})
             if runtime_span:
                 runtime = runtime_span.text.strip()
-                print(f"片长: {runtime}")
             
             # 遍历所有标签提取剧组信息及其他信息
             for label in info_div.find_all('span', class_='pl'):
@@ -186,9 +209,7 @@ def get_movie_info(movie_soup, number, movie_url):
                 
                 if values:
                     crew_info_dict[label_text] = values
-                    print(f"{label_text}: {values}")
-                    
-                    # 提取各类信息
+                    # 提取各类信息并存储，但不立即打印
                     if '导演' in label_text:
                         director = values
                     elif '编剧' in label_text:
@@ -204,7 +225,17 @@ def get_movie_info(movie_soup, number, movie_url):
                     elif 'IMDb' in label_text:
                         imdb = values[0] if values else None
                         
-        print(f"电影剧组信息字典: {crew_info_dict}")
+        # 完整的电影信息汇总打印
+        print(f"电影排名: {number}")
+        print(f"电影标题: {title}")
+        print(f"电影年份: {year}")
+        print(f"电影评分: {rating}")
+        print(f"电影评论数: {comments}")
+        print(f"电影权重: {weight}")
+        if similar:
+            print(f"同类电影排名: 超过{similar}")
+        else:
+            print("同类电影排名: 无")
         print(f"电影导演: {director}")
         print(f"电影编剧: {script}")
         print(f"电影主演: {actors}")
@@ -215,6 +246,7 @@ def get_movie_info(movie_soup, number, movie_url):
         print(f"片长: {runtime}")
         print(f"又名: {aka}")
         print(f"IMDb编号: {imdb}")
+        print("-" * 50)  # 添加分隔线
 
         # 返回完整的实现可以返回电影对象
         return Movie(number, title, year, rating, comments, weight, similar, director, script, actors, types,
@@ -257,7 +289,10 @@ def crawl_page(url,page=0):
                     # 从详情页提取电影信息
                     movie_object = get_movie_info(movie_soup, number, movie_url)
                     if movie_object:
-                        save_to_mysql(movie_object)
+                        try:
+                            save_to_mysql(movie_object)
+                        except Exception as e:
+                            print(f"警告: 保存到数据库失败，继续爬取下一部电影: {e}")
                 else:
                     print(f"访问电影详情页失败")
                 
