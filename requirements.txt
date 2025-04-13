@@ -15,9 +15,15 @@ parsel>=1.8.1  # Scrapy使用的选择器，单独也很好用
 # ===== 数据处理与存储 =====
 pandas>=2.0.3
 numpy>=1.24.3  # 数据处理基础库
-pymysql>=1.1.0
-pymongo>=4.5.0
-sqlalchemy>=2.0.20  # ORM框架
+
+# MySQL 相关
+pymysql>=1.1.0  # MySQL 的 Python 驱动
+mysqlclient>=2.2.0  # 原生 MySQL 驱动（性能更好）
+cryptography>=41.0.3  # 为 PyMySQL 提供加密支持
+sqlalchemy>=2.0.20  # SQL ORM框架
+alembic>=1.12.0  # SQLAlchemy 的数据库迁移工具
+
+pymongo>=4.5.0  # MongoDB 驱动
 pyyaml>=6.0.1  # YAML配置文件支持
 jsonpath-ng>=1.5.0  # JSON数据提取，更现代的版本
 
