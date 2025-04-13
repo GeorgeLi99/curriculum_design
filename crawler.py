@@ -1,14 +1,35 @@
-#! -*- encoding:utf-8 -*-
+# -*- coding: utf-8 -*-
 
 import requests
 import httpx
-import beautifulsoup4 as bs4
-import parsel
+import bs4
 import re
 import pymysql as pms
 import random
 import time
 from config import *
+
+class Movie:
+    def __init__(self, number, title, year, rating, comments, weight, similar, director, script, actors, types, 
+                 country=None, language=None, release_date=None, runtime=None, aka=None, imdb=None):
+        self.number = number
+        self.title = title
+        self.year = year
+        self.rating = rating
+        self.comments = comments
+        self.weight = weight
+        self.similar = similar
+        self.director = director
+        self.script = script
+        self.actors = actors
+        self.types = types
+        # 新增字段
+        self.country = country  # 制片国家
+        self.language = language  # 语言
+        self.release_date = release_date  # 上映日期
+        self.runtime = runtime  # 片长
+        self.aka = aka  # 又名
+        self.imdb = imdb  # IMDb编号
 
 ip_list=[]
 with open('ip.txt','r') as file:
@@ -57,10 +78,119 @@ def request_with_random_ip(url):
 def get_movie_info(movie):
     # TODO: Implement movie info extraction
     try:
-        title = movie.find('span', class_='title').text.strip()
+        # 获取电影排名
+        number = movie.find('span', attrs={"class": "top250-no"}).text.strip()
+        print(f"电影排名: {number}")
+        # 获取电影标题
+        title = movie.find('span', attrs={"property": "v:itemreviewed"}).text.strip()
         print(f"电影标题: {title}")
+        # 获取电影年份
+        year = movie.find('span', attrs={"class": "year"}).text.strip()
+        print(f"电影年份: {year}")
+        # 获取电影评分
+        rating = movie.find('strong', attrs={"class": "ll rating_num","property": "v:average"}).text.strip()
+        print(f"电影评分: {rating}")
+        # 获取电影评论数
+        comments = movie.find('a', attrs={"href": "comments","class": "rating_people"}).find('span', attrs={"property": "v:votes"}).text.strip()
+        print(f"电影评论数: {comments}")
+        # 获取电影评分权重
+        weight = movie.find('div', attrs={"class": "rating_on_weight"}).find_all('div',attrs={"class": "item"}).find('span',attrs={"class": "rating_per"}).text.strip()
+        print(f"电影评分权重: {weight}")
+        # 获取同类电影排名
+        similar = movie.find_all('div', attrs={"class": "rating_betterthan"}).find('a').text.strip()
+        print(f"同类电影排名: {similar}")
+        # 获取电影信息区域
+        info_div = movie.find('div', attrs={"id": "info"})
+        if not info_div:
+            print("未找到电影信息区域")
+            info_div = soup.find('div', attrs={"id": "info"})  # 尝试从整个页面搜索
+        
+        # 创建电影剧组信息字典
+        crew_info_dict = {}
+        director = []
+        script = []
+        actors = []
+        types = []
+        
+        # 初始化新增字段
+        country = []
+        language = []
+        release_date = []
+        runtime = None
+        aka = []
+        imdb = None
+
+        if info_div:
+            # 提取电影类型
+            types = [t.text.strip() for t in info_div.find_all('span', attrs={"property": "v:genre"})]
+            print(f"电影类型: {types}")
+            
+            # 专门提取上映日期
+            release_dates = info_div.find_all('span', attrs={"property": "v:initialReleaseDate"})
+            if release_dates:
+                release_date = [date.text.strip() for date in release_dates]
+                print(f"上映日期: {release_date}")
+            
+            # 专门提取片长
+            runtime_span = info_div.find('span', attrs={"property": "v:runtime"})
+            if runtime_span:
+                runtime = runtime_span.text.strip()
+                print(f"片长: {runtime}")
+            
+            # 遍历所有标签提取剧组信息及其他信息
+            for label in info_div.find_all('span', class_='pl'):
+                label_text = label.text.strip().rstrip(':')  # 移除冒号
+                
+                # 查找标签后的值
+                values = []
+                
+                # 处理<span class="attrs">的情况
+                next_attrs = label.find_next_sibling('span', class_='attrs')
+                if next_attrs:
+                    # 收集所有链接文本
+                    values = [a.text.strip() for a in next_attrs.find_all('a')]
+                else:
+                    # 处理纯文本的情况
+                    sibling = label.next_sibling
+                    if sibling and isinstance(sibling, str) and sibling.strip():
+                        values = [item.strip() for item in sibling.strip().split('/') if item.strip()]
+                
+                if values:
+                    crew_info_dict[label_text] = values
+                    print(f"{label_text}: {values}")
+                    
+                    # 提取各类信息
+                    if '导演' in label_text:
+                        director = values
+                    elif '编剧' in label_text:
+                        script = values
+                    elif '主演' in label_text:
+                        actors = values
+                    elif '制片国家' in label_text or '制片地区' in label_text:
+                        country = values
+                    elif '语言' in label_text:
+                        language = values
+                    elif '又名' in label_text:
+                        aka = values
+                    elif 'IMDb' in label_text:
+                        imdb = values[0] if values else None
+                        
+        print(f"电影剧组信息字典: {crew_info_dict}")
+        print(f"电影导演: {director}")
+        print(f"电影编剧: {script}")
+        print(f"电影主演: {actors}")
+        print(f"电影类型: {types}")
+        print(f"制片国家: {country}")
+        print(f"语言: {language}")
+        print(f"上映日期: {release_date}")
+        print(f"片长: {runtime}")
+        print(f"又名: {aka}")
+        print(f"IMDb编号: {imdb}")
+
         # 返回完整的实现可以返回电影对象
-        return title
+        return Movie(number, title, year, rating, comments, weight, similar, director, script, actors, types,
+                     country, language, release_date, runtime, aka, imdb)
+
     except Exception as e:
         print(f"解析电影信息失败: {e}")
         return None
@@ -79,7 +209,9 @@ def crawl_page(url,page=0):
         
             # 对每部电影进行处理
             for movie in movie_list:
-                get_movie_info(movie)
+                movie_object = get_movie_info(movie)
+                if movie_object:
+                    save_to_mysql(movie_object)
             
             # 每次请求后随机延时
             delay = random.randint(START_TIME, END_TIME)
@@ -121,8 +253,3 @@ def save_to_mysql():
     # 关闭连接
     cursor.close()
     conn.close()
-
-if __name__=="__main__":
-    # 代码中的主逻辑已经直接运行
-    # 如果需要将电影信息存入数据库，可以将下面的代码取消注释
-    # save_to_mysql()
