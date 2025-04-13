@@ -320,7 +320,7 @@ def get_movie_info(movie_soup, number, movie_url):
         print("-" * 105)  # 添加分隔线
 
         # 传入当前电影ID和电影页面对象
-        comment_objects = crawl_comment(number, movie_soup)
+        comment_objects = crawl_comment(number, movie_soup, movie_url)
         if comment_objects:
             print(f"共获取了 {len(comment_objects)} 条评论")
         else:
@@ -334,10 +334,38 @@ def get_movie_info(movie_soup, number, movie_url):
         print(f"解析电影信息失败: {e}")
         return None
 
-def crawl_comment(movie_id, movie_soup):
+def crawl_comment(movie_id, movie_soup, movie_url):
     count=0
-    comment_url=movie_soup.find('div',attrs={'id':'comments-section'}).find('div',attrs={'id':'hot-comments'}).find('a',attrs={'href':True})['href']
-    detail_request=request_with_random_ip(comment_url)
+    try:
+        # 获取评论链接
+        comments_section = movie_soup.find('div', attrs={'id':'comments-section'})
+        if not comments_section:
+            print(f"未找到评论区域")
+            return []
+            
+        hot_comments = comments_section.find('div', attrs={'id':'hot-comments'})
+        if not hot_comments:
+            print(f"未找到热门评论区域")
+            return []
+            
+        comment_link = hot_comments.find('a', attrs={'href':True})
+        if not comment_link:
+            print(f"未找到评论链接")
+            return []
+            
+        relative_comment_url = comment_link['href']
+        
+        # 处理URL拼接
+        comment_url_without_http = movie_url + relative_comment_url
+        
+        # 确保URL以http开头
+        comment_url = f"http://{comment_url_without_http}" if not comment_url_without_http.startswith('http') else comment_url_without_http
+        
+        print(f"访问评论页面: {comment_url}")
+        detail_request = request_with_random_ip(comment_url)
+    except Exception as e:
+        print(f"构建评论页面URL失败: {e}")
+        return []
     if detail_request:
         comment_soup=bs4.BeautifulSoup(detail_request.text,'html.parser')
         comments=comment_soup.find_all('div',attrs={'class':'comment-item','data-cid':True})
@@ -349,16 +377,80 @@ def crawl_comment(movie_id, movie_soup):
             comment_objects.append(comment_object)
             count+=1
         
-        while(count<60):
-            next_url=comment_soup.find('div',attrs={'id':'paginator','class':'center'}).find('a',attrs={'href':True,'data-page':'next','class':'next'})['href']
-            detail_request=request_with_random_ip(next_url)
-            if detail_request:
-                comment_soup=bs4.BeautifulSoup(detail_request.text,'html.parser')
-                comments=comment_soup.find_all('div',attrs={'class':'comment-item','data-cid':True})
-                for comment in comments:
-                    comment_object = get_comment_info(comment, movie_id)
-                    comment_objects.append(comment_object)
-                    count+=1
+        # 分页爬取评论
+        while(count < 60):
+            try:
+                # 获取分页器
+                paginator = comment_soup.find('div', attrs={'id':'paginator', 'class':'center'})
+                if not paginator:
+                    print(f"没有找到分页器，停止获取更多评论")
+                    break
+                
+                # 尝试获取下一页链接
+                next_link = paginator.find('a', attrs={'href':True, 'data-page':'next', 'class':'next'})
+                if not next_link:
+                    print(f"没有下一页链接，已到最后一页")
+                    break
+                
+                relative_next_url = next_link['href']
+                
+                # 处理JavaScript链接
+                if relative_next_url.startswith('javascript:'):
+                    print(f"下一页使用JavaScript处理，停止爬取")
+                    break
+                
+                # 正确处理URL拼接
+                if relative_next_url.startswith('http'):
+                    next_url = relative_next_url
+                elif relative_next_url.startswith('/'):
+                    next_url = f"https://movie.douban.com{relative_next_url}"
+                else:
+                    # 从当前评论页URL提取基础路径
+                    from urllib.parse import urlparse, urljoin
+                    # 使用评论页的URL域名和路径作为基础URL
+                    parsed_url = urlparse(comment_url)
+                    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                    # 移除文件名部分，只保留路径
+                    if '/' in base_url.rstrip('/'):
+                        base_url = base_url.rsplit('/', 1)[0] + '/'
+                    next_url = urljoin(base_url, relative_next_url)
+                
+                print(f"访问下一页评论: {next_url}")
+                # 添加随机延时，避免请求过快
+                import time, random
+                from config import START_TIME, END_TIME
+                time.sleep(random.randint(START_TIME, END_TIME))
+                
+                detail_request = request_with_random_ip(next_url)
+                if detail_request:
+                    comment_soup = bs4.BeautifulSoup(detail_request.text, 'html.parser')
+                    comments = comment_soup.find_all('div', attrs={'class':'comment-item', 'data-cid':True})
+                    
+                    # 如果没有评论，停止爬取
+                    if not comments:
+                        print(f"没有找到评论，停止爬取")
+                        break
+                    
+                    # 取得那一页的评论 URL，更新 comment_url 为当前页
+                    comment_url = next_url
+                    
+                    # 获取评论
+                    for comment in comments:
+                        comment_object = get_comment_info(comment, movie_id)
+                        comment_objects.append(comment_object)
+                        count += 1
+                        if count >= 60:  # 到达最大数量，停止爬取
+                            break
+                    
+                    # 如果已达到最大评论数量，退出循环
+                    if count >= 60:
+                        break
+                else:
+                    print(f"访问下一页评论失败，停止爬取")
+                    break
+            except Exception as e:
+                print(f"分页爬取异常: {e}")
+                break
                     
         # 打印第一个评论
         if comment_objects and len(comment_objects) > 0:
@@ -600,11 +692,8 @@ def save_comments_to_mysql(movie_id, comment_objects, conn=None, cursor=None):
         for comment in comment_objects:
             try:
                 # 将评论票数转换为整数
-                try:
-                    vote = int(comment.comment_vote) if comment.comment_vote else 0
-                except:
-                    vote = 0
-                    
+                vote = int(comment.comment_vote) if comment.comment_vote else 0
+            
                 cursor.execute(sql, (
                     movie_id,
                     comment.comment,  # 评论内容
