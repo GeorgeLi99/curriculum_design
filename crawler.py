@@ -21,6 +21,7 @@ def get_ip():
         'http':'http://'+str(proxy),
         # 'https':'https://'+str(proxy)
     }   
+    print(proxies)
     return proxies  # request 的ip代理约定格式
 
 headers={
@@ -33,9 +34,61 @@ headers={
 }
 url='https://movie.douban.com/top250'
 
-res=requests.get(url,headers=headers,proxies=get_ip(),verify=False)
+# 使用随机 IP 请求页面
+def request_with_random_ip(url):
+    # 每次请求前随机选择新的IP代理
+    proxy = get_ip()
+    print(f"使用代理: {proxy}")
+    
+    try:
+        # 发起请求
+        res = requests.get(url, headers=headers, proxies=proxy, timeout=15, verify=False)
+        if res.status_code == 200:
+            print("请求成功!")
+            return res
+        else:
+            print(f"请求失败: 状态码 {res.status_code}")
+            return None
+    except Exception as e:
+        print(f"请求异常: {e}")
+        return None
 
-soup=bs4.BeautifulSoup(res.text,'html.parser')
+# 预先定义电影信息提取函数
+def get_movie_info(movie):
+    # TODO: Implement movie info extraction
+    try:
+        title = movie.find('span', class_='title').text.strip()
+        print(f"电影标题: {title}")
+        # 返回完整的实现可以返回电影对象
+        return title
+    except Exception as e:
+        print(f"解析电影信息失败: {e}")
+        return None
+
+def crawl_page(url,page=0):
+    # 使用随机代理发送请求
+    print(f"开始爬取豆瓣电影Top250第{page+1}页...")
+    res = request_with_random_ip(url)
+    
+    # 如果请求成功，解析页面内容
+    if res:
+        soup = bs4.BeautifulSoup(res.text, 'html.parser')
+        try:
+            movie_list = soup.find('ol', class_='grid_view').find_all('li')
+            print(f"找到 {len(movie_list)} 部电影")
+        
+            # 对每部电影进行处理
+            for movie in movie_list:
+                get_movie_info(movie)
+            
+            # 每次请求后随机延时
+            delay = random.randint(START_TIME, END_TIME)
+            print(f"延时 {delay} 秒...")
+            time.sleep(delay)
+        except Exception as e:
+            print(f"解析页面失败: {e}")
+    else:
+        print("请求失败，无法获取页面内容")
 
 def save_to_mysql():
     # 建立数据库连接
@@ -60,7 +113,7 @@ def save_to_mysql():
     )
     ''')
 
-    sql = "INSERT INTO movies (title,rating,year,director,actors,)"
+    sql = "INSERT INTO movies (title, rating, year, quote) VALUES (%s, %s, %s, %s)"
 
     # 提交事务
     conn.commit()
@@ -69,5 +122,7 @@ def save_to_mysql():
     cursor.close()
     conn.close()
 
-
-time.sleep(random.randint(3,5))
+if __name__=="__main__":
+    # 代码中的主逻辑已经直接运行
+    # 如果需要将电影信息存入数据库，可以将下面的代码取消注释
+    # save_to_mysql()
