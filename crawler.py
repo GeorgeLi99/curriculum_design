@@ -12,24 +12,40 @@ from config import *
 class Movie:
     def __init__(self, number, title, year, rating, comments, weight, similar, director, script, actors, types, 
                  country=None, language=None, release_date=None, runtime=None, aka=None, imdb=None):
+        # 电影排名
         self.number = number
+        # 电影标题
         self.title = title
+        # 电影年份
         self.year = year
+        # 电影评分
         self.rating = rating
+        # 电影评论数
         self.comments = comments
+        # 电影评分权重
         self.weight = weight
+        # 同类电影排名
         self.similar = similar
+        # 电影导演
         self.director = director
+        # 电影编剧
         self.script = script
+        # 电影演员
         self.actors = actors
+        # 电影类型
         self.types = types
-        # 新增字段
-        self.country = country  # 制片国家
-        self.language = language  # 语言
-        self.release_date = release_date  # 上映日期
-        self.runtime = runtime  # 片长
-        self.aka = aka  # 又名
-        self.imdb = imdb  # IMDb编号
+        # 制片国家
+        self.country = country
+        # 语言
+        self.language = language
+        # 上映日期
+        self.release_date = release_date
+        # 片长
+        self.runtime = runtime
+        # 又名
+        self.aka = aka
+        # IMDb编号
+        self.imdb = imdb
 
 ip_list=[]
 with open('ip.txt','r') as file:
@@ -75,35 +91,48 @@ def request_with_random_ip(url):
         return None
 
 # 预先定义电影信息提取函数
-def get_movie_info(movie):
-    # TODO: Implement movie info extraction
+def get_movie_info(movie_soup, number, movie_url):
+    # 从详情页提取电影完整信息
     try:
-        # 获取电影排名
-        number = movie.find('span', attrs={"class": "top250-no"}).text.strip()
+        # 排名已经从列表页提取
         print(f"电影排名: {number}")
+        
         # 获取电影标题
-        title = movie.find('span', attrs={"property": "v:itemreviewed"}).text.strip()
+        title = movie_soup.find('span', attrs={"property": "v:itemreviewed"}).text.strip()
         print(f"电影标题: {title}")
+        
         # 获取电影年份
-        year = movie.find('span', attrs={"class": "year"}).text.strip()
+        year = movie_soup.find('span', attrs={"class": "year"}).text.strip()
         print(f"电影年份: {year}")
         # 获取电影评分
-        rating = movie.find('strong', attrs={"class": "ll rating_num","property": "v:average"}).text.strip()
+        rating_elem = movie_soup.find('strong', attrs={"class": "ll rating_num", "property": "v:average"})
+        rating = rating_elem.text.strip() if rating_elem else "0.0"
         print(f"电影评分: {rating}")
+        
         # 获取电影评论数
-        comments = movie.find('a', attrs={"href": "comments","class": "rating_people"}).find('span', attrs={"property": "v:votes"}).text.strip()
+        votes_elem = movie_soup.find('span', attrs={"property": "v:votes"})
+        comments = votes_elem.text.strip() if votes_elem else "0"
         print(f"电影评论数: {comments}")
-        # 获取电影评分权重
-        weight = movie.find('div', attrs={"class": "rating_on_weight"}).find_all('div',attrs={"class": "item"}).find('span',attrs={"class": "rating_per"}).text.strip()
+        
+        # 获取电影评分权重 - 设置默认值
+        weight = "0%"
+        weight_div = movie_soup.find('div', attrs={"class": "rating_per"})
+        if weight_div:
+            weight = weight_div.text.strip()
         print(f"电影评分权重: {weight}")
+        
         # 获取同类电影排名
-        similar = movie.find_all('div', attrs={"class": "rating_betterthan"}).find('a').text.strip()
+        similar = ""
+        betterthan = movie_soup.find('div', attrs={"class": "rating_betterthan"})
+        if betterthan and betterthan.find('a'):
+            similar = betterthan.find('a').text.strip()
         print(f"同类电影排名: {similar}")
+        
         # 获取电影信息区域
-        info_div = movie.find('div', attrs={"id": "info"})
+        info_div = movie_soup.find('div', attrs={"id": "info"})
         if not info_div:
             print("未找到电影信息区域")
-            info_div = soup.find('div', attrs={"id": "info"})  # 尝试从整个页面搜索
+            return None
         
         # 创建电影剧组信息字典
         crew_info_dict = {}
@@ -209,47 +238,131 @@ def crawl_page(url,page=0):
         
             # 对每部电影进行处理
             for movie in movie_list:
-                movie_object = get_movie_info(movie)
-                if movie_object:
-                    save_to_mysql(movie_object)
+                # 提取电影详情页URL
+                movie_url = movie.find('a', attrs={'href': True})['href']
+                print(f"发现电影URL: {movie_url}")
+                
+                # 访问电影详情页
+                print(f"正在访问电影详情页...")
+                detail_res = request_with_random_ip(movie_url)
+                
+                if detail_res:
+                    # 解析电影详情页
+                    movie_soup = bs4.BeautifulSoup(detail_res.text, 'html.parser')
+                    # 从详情页提取电影信息
+                    movie_object = get_movie_info(movie_soup, number, movie_url)
+                    if movie_object:
+                        save_to_mysql(movie_object)
+                else:
+                    print(f"访问电影详情页失败")
+                
+                # 在电影之间添加小延时避免被反爬
+                item_delay = random.randint(START_TIME, END_TIME)
+                print(f"电影间隔延时 {item_delay} 秒...")
+                time.sleep(item_delay)
             
             # 每次请求后随机延时
             delay = random.randint(START_TIME, END_TIME)
             print(f"延时 {delay} 秒...")
             time.sleep(delay)
+            
         except Exception as e:
             print(f"解析页面失败: {e}")
     else:
         print("请求失败，无法获取页面内容")
 
-def save_to_mysql():
+def save_to_mysql(movie):
     # 建立数据库连接
-    conn=pms.connect(
-        host='localhost',
-        user='root',
-        password=PASSWORD,
-        database=DATABASE,
-        charset='utf8mb4'
-    )
+    try:
+        conn=pymysql.connect(
+            host='localhost',
+            user='root',
+            password=PASSWORD,
+            database=DATABASE,
+            charset='utf8mb4'
+        )
 
-    cursor = conn.cursor()
+        cursor = conn.cursor()
 
-    # 创建数据表
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS movies (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        title VARCHAR(255) NOT NULL,
-        year INT,
-        rating DECIMAL(3,1),
-        quote VARCHAR(255)
-    )
-    ''')
+        # 创建数据表
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS movies (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            year VARCHAR(10),
+            rating DECIMAL(3,1),
+            comments INT,
+            director TEXT,
+            script TEXT,
+            actors TEXT,
+            types TEXT,
+            country TEXT,
+            language TEXT,
+            release_date TEXT,
+            runtime VARCHAR(50),
+            aka TEXT,
+            imdb VARCHAR(20)
+        )
+        ''')
 
-    sql = "INSERT INTO movies (title, rating, year, quote) VALUES (%s, %s, %s, %s)"
+        # 准备数据 - 将列表转换为字符串
+        directors_str = ','.join(movie.director) if movie.director else ''
+        script_str = ','.join(movie.script) if movie.script else ''
+        actors_str = ','.join(movie.actors) if movie.actors else ''
+        types_str = ','.join(movie.types) if movie.types else ''
+        country_str = ','.join(movie.country) if movie.country else ''
+        language_str = ','.join(movie.language) if movie.language else ''
+        release_date_str = ','.join(movie.release_date) if movie.release_date else ''
+        aka_str = ','.join(movie.aka) if movie.aka else ''
 
-    # 提交事务
-    conn.commit()
+        # 插入数据
+        sql = """INSERT INTO movies (title, year, rating, comments, director, script, actors, 
+                      types, country, language, release_date, runtime, aka, imdb) 
+              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+        
+        cursor.execute(sql, (
+            movie.title, 
+            movie.year, 
+            movie.rating, 
+            movie.comments,
+            directors_str,
+            script_str,
+            actors_str,
+            types_str,
+            country_str,
+            language_str,
+            release_date_str,
+            movie.runtime,
+            aka_str,
+            movie.imdb
+        ))
 
-    # 关闭连接
-    cursor.close()
-    conn.close()
+        # 提交事务
+        conn.commit()
+        print(f"电影 {movie.title} 保存到数据库成功")
+        
+        # 关闭连接
+        cursor.close()
+        conn.close()
+        
+    except Exception as e:
+        print(f"保存到数据库失败: {e}")
+
+# 程序入口点
+if __name__ == "__main__":
+    print("豆瓣电影Top250爬虫开始运行...")
+
+    base_url = "https://movie.douban.com/top250"
+    # 分页爬取（默认10页，每页最多25部电影）
+    try:
+        # 先爬取第一页
+        crawl_page(base_url, 0)
+        
+        # 如果需要爬取所有页面，可以取消下面注释
+        # for page in range(1, 10):
+        #     page_url = f"{base_url}?start={page*25}&filter="
+        #     crawl_page(page_url, page)
+        
+        print("所有电影爬取完成！")
+    except Exception as e:
+        print(f"爬取过程出错: {e}")
