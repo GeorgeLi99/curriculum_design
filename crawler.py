@@ -66,11 +66,12 @@ class Comment:
         self.comment_vote = comment_vote
 
 def get_ip():
+    """从配置的代理IP文件中获取随机代理"""
     ip_list=[]
-    with open('ip.txt','r') as file:
+    with open(PROXY_FILE, 'r') as file:
         ip_list=file.readlines()
     proxy=ip_list[random.randint(0,len(ip_list)-1)]
-    proxy=proxy.replace('\r\n','')
+    proxy=proxy.replace('\r\n','').replace('\n', '')
     proxies={
         'http':'http://'+str(proxy),
         # 'https':'https://'+str(proxy)
@@ -80,23 +81,24 @@ def get_ip():
 
 # 使用随机 IP 请求页面
 def request_with_random_ip(url):
-    # 设置请求头
-    headers={
-        'Host':'movie.douban.com',
-        'User-Agent':'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
-        'cookie':'bid=uVCOdCZRTrM; douban-fav-remind=1; __utmz=30149280.1603808051.2.2.utmcsr=google|utmccn=(organic)|utmcmd=organic|utmctr=(not%20provided); __gads=ID=7ca757265e2366c5-22ded2176ac40059:T=1603808052:RT=1603808052:S=ALNI_MYZsGZJ8XXb1oU4zxzpMzGdK61LFA; _pk_ses.100001.4cf6=*; __utma=30149280.1867171825.1603588354.1603808051.1612839506.3; __utmc=30149280; __utmb=223695111.0.10.1612839506; __utma=223695111.788421403.1612839506.1612839506.1612839506.1; __utmz=223695111.1612839506.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none); __utmc=223695111; ap_v=0,6.0; __utmt=1; dbcl2="165593539:LvLaPIrgug0"; ck=ZbYm; push_noty_num=0; push_doumail_num=0; __utmv=30149280.16559; __utmb=30149280.6.10.1612839506; _pk_id.100001.4cf6=e2e8bde436a03ad7.1612839506.1.1612842801.1612839506.',
-        'accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-        'accept-encoding': 'gzip, deflate, br',
-        'accept-language': 'zh-CN,zh;q=0.9',
-    }
+    """使用随机代理IP发送HTTP请求
+    
+    Args:
+        url (str): 要请求的URL
+        
+    Returns:
+        requests.Response: 请求响应对象，如果请求失败则返回None
+    """
+    # 使用config中的请求头配置
+    headers = HEADERS
 
     # 每次请求前随机选择新的IP代理
     proxy = get_ip()
     print(f"使用代理: {proxy}")
     
     try:
-        # 发起请求
-        res = requests.get(url, headers=headers, proxies=proxy, timeout=15, verify=False)
+        # 发起请求，使用config中的超时和验证设置
+        res = requests.get(url, headers=headers, proxies=proxy, timeout=REQUEST_TIMEOUT, verify=VERIFY_SSL)
         if res.status_code == 200:
             print("请求成功!")
             return res
@@ -470,7 +472,7 @@ def crawl_page(url,page=0):
     
     # 如果请求成功，解析页面内容
     if res:
-        soup = bs4.BeautifulSoup(res.text, 'html.parser')
+        soup = bs4.BeautifulSoup(res.text, PARSER)
         try:
             movie_list = soup.find('ol', class_='grid_view').find_all('li')
             print(f"找到 {len(movie_list)} 部电影")
@@ -734,20 +736,24 @@ def save_comments_to_mysql(movie_id, comment_objects, conn=None, cursor=None):
         return 0
 
 # 程序入口点
-if __name__ == "__main__":
+def main():
+    """程序主入口函数，控制爬虫流程"""
     print("豆瓣电影Top250爬虫开始运行...")
 
-    base_url = "https://movie.douban.com/top250"
-    # 分页爬取（默认10页，每页最多25部电影）
+    # 分页爬取（使用config配置的页数）
     try:
         # 先爬取第一页
-        crawl_page(base_url, 0)
+        crawl_page(BASE_URL, 0)
         
-        # 如果需要爬取所有页面，可以取消下面注释
-        # for page in range(1, 10):
-        #     page_url = f"{base_url}?start={page*25}&filter="
-        #     crawl_page(page_url, page)
+        # 如果需要爬取多页，根据配置的MAX_PAGES决定
+        if MAX_PAGES > 1:
+            for page in range(1, MAX_PAGES):
+                page_url = f"{BASE_URL}?start={page*25}&filter="
+                crawl_page(page_url, page)
         
         print("所有电影爬取完成！")
     except Exception as e:
         print(f"爬取过程出错: {e}")
+
+if __name__ == "__main__":
+    main()
