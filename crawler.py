@@ -10,8 +10,8 @@ import time
 from config import *
 
 class Movie:
-    def __init__(self, number, title, year, rating, comments, weight, similar, director, script, actors, types, 
-                 country=None, language=None, release_date=None, runtime=None, aka=None, imdb=None):
+    def __init__(self, number, title, year, rating, comments_num, weight, similar, director, script, actors, types, 
+                 country=None, language=None, release_date=None, runtime=None, aka=None, imdb=None, comments=None):
         # 电影排名
         self.number = number
         # 电影标题
@@ -21,7 +21,9 @@ class Movie:
         # 电影评分
         self.rating = rating
         # 电影评论数
-        self.comments = comments
+        self.comments_num = comments_num
+        # 电影评论内容
+        self.comments = comments    
         # 电影评分权重
         self.weight = weight
         # 同类电影排名
@@ -46,6 +48,22 @@ class Movie:
         self.aka = aka
         # IMDb编号
         self.imdb = imdb
+class Comment:
+    def __init__(self,id,movie_id,comment,star,comment_time,comment_person,comment_use):
+        # 评论ID
+        self.id = id
+        # 电影ID
+        self.movie_id = movie_id
+        # 评论内容
+        self.comment = comment
+        # 评分
+        self.star = star
+        # 评论时间
+        self.comment_time = comment_time
+        # 评论人
+        self.comment_person = comment_person
+        # 评论使用
+        self.comment_use = comment_use
 
 ip_list=[]
 with open('ip.txt','r') as file:
@@ -108,7 +126,7 @@ def get_movie_info(movie_soup, number, movie_url):
         
         # 获取电影评论数
         votes_elem = movie_soup.find('span', attrs={"property": "v:votes"})
-        comments = votes_elem.text.strip() if votes_elem else "0"
+        comments_num = votes_elem.text.strip() if votes_elem else "0"
         
         # 获取电影评分权重 - 提取所有星级的权重
         weight_dict = {}
@@ -230,10 +248,10 @@ def get_movie_info(movie_soup, number, movie_url):
         print(f"电影标题: {title}")
         print(f"电影年份: {year}")
         print(f"电影评分: {rating}")
-        print(f"电影评论数: {comments}")
+        print(f"电影评论数: {comments_num}")
         print(f"电影权重: {weight}")
         if similar:
-            print(f"同类电影排名: 超过{similar}")
+            print(f"同类电影排名: 超过 {similar}")
         else:
             print("同类电影排名: 无")
         print(f"电影导演: {director}")
@@ -246,10 +264,10 @@ def get_movie_info(movie_soup, number, movie_url):
         print(f"片长: {runtime}")
         print(f"又名: {aka}")
         print(f"IMDb编号: {imdb}")
-        print("-" * 50)  # 添加分隔线
+        print("-" * 105)  # 添加分隔线
 
         # 返回完整的实现可以返回电影对象
-        return Movie(number, title, year, rating, comments, weight, similar, director, script, actors, types,
+        return Movie(number, title, year, rating, comments_num, weight, similar, director, script, actors, types,
                      country, language, release_date, runtime, aka, imdb)
 
     except Exception as e:
@@ -331,7 +349,8 @@ def save_to_mysql(movie):
             title VARCHAR(255) NOT NULL,
             year VARCHAR(10),
             rating DECIMAL(3,1),
-            comments INT,
+            comments_num INT,
+            comments TEXT,
             director TEXT,
             script TEXT,
             actors TEXT,
@@ -356,15 +375,16 @@ def save_to_mysql(movie):
         aka_str = ','.join(movie.aka) if movie.aka else ''
 
         # 插入数据
-        sql = """INSERT INTO movies (title, year, rating, comments, director, script, actors, 
+        sql = """INSERT INTO movies (title, year, rating, comments_num, comments, director, script, actors, 
                       types, country, language, release_date, runtime, aka, imdb) 
-              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         
         cursor.execute(sql, (
             movie.title, 
             movie.year, 
             movie.rating, 
-            movie.comments,
+            movie.comments_num,
+            movie.comments,  # 新增电影评论内容字段
             directors_str,
             script_str,
             actors_str,
