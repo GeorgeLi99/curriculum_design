@@ -22,7 +22,7 @@ class Movie:
         self.rating = rating
         # 电影评论数
         self.comments_num = comments_num
-        # 电影评论对象
+        # 电影评论对象列表
         self.comments = comments    
         # 电影评分权重
         self.weight = weight
@@ -335,6 +335,7 @@ def get_movie_info(movie_soup, number, movie_url):
         return None
 
 def crawl_comment(movie_id, movie_soup):
+    count=0
     comment_url=movie_soup.find('div',attrs={'id':'comments-section'}).find('div',attrs={'id':'hot-comments'}).find('a',attrs={'href':True})['href']
     detail_request=request_with_random_ip(comment_url)
     if detail_request:
@@ -346,7 +347,19 @@ def crawl_comment(movie_id, movie_soup):
         for comment in comments:
             comment_object = get_comment_info(comment, movie_id)
             comment_objects.append(comment_object)
+            count+=1
         
+        while(count<60):
+            next_url=comment_soup.find('div',attrs={'id':'paginator','class':'center'}).find('a',attrs={'href':True,'data-page':'next','class':'next'})['href']
+            detail_request=request_with_random_ip(next_url)
+            if detail_request:
+                comment_soup=bs4.BeautifulSoup(detail_request.text,'html.parser')
+                comments=comment_soup.find_all('div',attrs={'class':'comment-item','data-cid':True})
+                for comment in comments:
+                    comment_object = get_comment_info(comment, movie_id)
+                    comment_objects.append(comment_object)
+                    count+=1
+                    
         # 打印第一个评论
         if comment_objects and len(comment_objects) > 0:
             print(f"共获取了 {len(comment_objects)} 条评论，显示第一条：")
@@ -356,6 +369,10 @@ def crawl_comment(movie_id, movie_soup):
             print(f"评论时间: {comment_objects[0].comment_time}")
             print(f"评论票数: {comment_objects[0].comment_vote}")
             print("-" * 105)  # 添加分隔线
+        return comment_objects
+    else:
+        print("未获取到评论")
+        return None
 
 def crawl_page(url,page=0):
     # 使用随机代理发送请求
@@ -416,14 +433,40 @@ def save_to_mysql(movie):
     # 建立数据库连接
     try:
         conn=pymysql.connect(
-            host='localhost',
-            user='root',
+            host=HOST,
+            user=USER,
             password=PASSWORD,
             database=DATABASE,
             charset='utf8mb4'
         )
 
         cursor = conn.cursor()
+        
+        # 返回当前连接和游标供保存评论使用
+        return save_movie_to_mysql(movie, conn, cursor)
+    except Exception as e:
+        print(f"建立数据库连接失败: {e}")
+        return None
+
+def save_movie_to_mysql(movie, conn=None, cursor=None):
+    # 如果没有提供连接和游标，创建新的连接
+    close_conn = False  # 是否需要关闭连接
+    if conn is None or cursor is None:
+        try:
+            conn=pymysql.connect(
+                host=HOST,
+                user=USER,
+                password=PASSWORD,
+                database=DATABASE,
+                charset='utf8mb4'
+            )
+            cursor = conn.cursor()
+            close_conn = True  # 在函数内创建的连接需要在函数结束时关闭
+        except Exception as e:
+            print(f"建立数据库连接失败: {e}")
+            return None
+
+    try:
 
         # 创建数据表
         cursor.execute('''
@@ -444,6 +487,20 @@ def save_to_mysql(movie):
             runtime VARCHAR(50),
             aka TEXT,
             imdb VARCHAR(20)
+        )
+        ''')
+        
+        # 创建评论表
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS comments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            movie_id INT NOT NULL,           -- 外键关联到电影表
+            comment_text TEXT NOT NULL,      -- 评论内容
+            comment_star VARCHAR(20),       -- 评分
+            comment_time VARCHAR(50),        -- 评论时间
+            comment_person VARCHAR(100),     -- 评论人
+            comment_vote INT,                -- 评论有用数
+            FOREIGN KEY (movie_id) REFERENCES movies(id) ON DELETE CASCADE
         )
         ''')
 
@@ -467,7 +524,7 @@ def save_to_mysql(movie):
             movie.year, 
             movie.rating, 
             movie.comments_num,
-            movie.comments,  # 新增电影评论内容字段
+            movie.comments,  # 这里现在是评论内容字段，不是对象列表
             directors_str,
             script_str,
             actors_str,
@@ -482,14 +539,99 @@ def save_to_mysql(movie):
 
         # 提交事务
         conn.commit()
-        print(f"电影 {movie.title} 保存到数据库成功")
         
-        # 关闭连接
-        cursor.close()
-        conn.close()
+        # 获取插入的电影ID
+        movie_id = cursor.lastrowid
+        print(f"电影 {movie.title} 保存到数据库成功，ID: {movie_id}")
+        
+        # 如果电影有评论对象列表，则保存评论
+        if hasattr(movie, 'comments') and isinstance(movie.comments, list) and len(movie.comments) > 0:
+            save_comments_to_mysql(movie_id, movie.comments, conn, cursor)
+        
+        # 如果是在函数内创建的连接，需要关闭
+        if close_conn:
+            cursor.close()
+            conn.close()
+            
+        return movie_id
         
     except Exception as e:
         print(f"保存到数据库失败: {e}")
+        return None
+
+def save_comments_to_mysql(movie_id, comment_objects, conn=None, cursor=None):
+    """将评论对象列表保存到数据库评论表中
+    
+    Args:
+        movie_id (int): 电影ID，外键关联到电影表
+        comment_objects (list): Comment对象列表
+        conn: 可选数据库连接
+        cursor: 可选数据库游标
+        
+    Returns:
+        int: 成功插入的评论数量
+    """
+    # 如果没有提供连接和游标，创建新的连接
+    close_conn = False  # 是否需要关闭连接
+    if conn is None or cursor is None:
+        try:
+            conn=pymysql.connect(
+                host=HOST,
+                user=USER,
+                password=PASSWORD,
+                database=DATABASE,
+                charset='utf8mb4'
+            )
+            cursor = conn.cursor()
+            close_conn = True  # 在函数内创建的连接需要在函数结束时关闭
+        except Exception as e:
+            print(f"建立数据库连接失败: {e}")
+            return 0
+    
+    try:
+        # 准备插入SQL
+        sql = """INSERT INTO comments (movie_id, comment_text, comment_star, comment_time, comment_person, comment_vote)
+              VALUES (%s, %s, %s, %s, %s, %s)"""
+        
+        # 记录成功插入的记录数
+        success_count = 0
+        
+        # 逐个处理评论对象
+        for comment in comment_objects:
+            try:
+                # 将评论票数转换为整数
+                try:
+                    vote = int(comment.comment_vote) if comment.comment_vote else 0
+                except:
+                    vote = 0
+                    
+                cursor.execute(sql, (
+                    movie_id,
+                    comment.comment,  # 评论内容
+                    comment.star,     # 评分
+                    comment.comment_time,  # 评论时间
+                    comment.comment_person,  # 评论人
+                    vote  # 评论票数
+                ))
+                success_count += 1
+            except Exception as e:
+                print(f"保存评论失败: {e}")
+                continue
+        
+        # 提交事务
+        conn.commit()
+        print(f"成功保存 {success_count} 条评论到数据库")
+        
+        # 如果是在函数内创建的连接，需要关闭
+        if close_conn:
+            cursor.close()
+            conn.close()
+            
+        return success_count
+        
+    except Exception as e:
+        print(f"保存评论到数据库失败: {e}")
+        return 0
 
 # 程序入口点
 if __name__ == "__main__":
