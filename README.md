@@ -57,8 +57,12 @@
    ```
 
    - 其中`requirements.txt`文件列出了所有需要的依赖包，你无需一个个安装。
+3. 安装MySQL数据库
 
-3. 准备MySQL数据库
+   - 可以从MySQL官方网站下载安装包：
+   - https://dev.mysql.com/downloads/mysql/
+
+4. 准备MySQL数据库
 
    ```sql
    CREATE DATABASE douban DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
