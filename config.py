@@ -4,3 +4,4 @@ START_TIME=1
 END_TIME=2
 USER='root'
 HOST='localhost'
+NUM_DASH=130

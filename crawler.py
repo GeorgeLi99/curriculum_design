@@ -7,6 +7,7 @@ import re
 import pymysql
 import random
 import time
+from urllib.parse import urljoin
 from config import *
 
 class Movie:
@@ -48,6 +49,7 @@ class Movie:
         self.aka = aka
         # IMDb编号
         self.imdb = imdb
+
 class Comment:
     def __init__(self,movie_id,comment,star,comment_time,comment_person,comment_vote):
         # 电影ID
@@ -63,11 +65,10 @@ class Comment:
         # 评论票数
         self.comment_vote = comment_vote
 
-ip_list=[]
-with open('ip.txt','r') as file:
-    ip_list=file.readlines()
-
 def get_ip():
+    ip_list=[]
+    with open('ip.txt','r') as file:
+        ip_list=file.readlines()
     proxy=ip_list[random.randint(0,len(ip_list)-1)]
     proxy=proxy.replace('\r\n','')
     proxies={
@@ -77,18 +78,18 @@ def get_ip():
     print(proxies)
     return proxies  # request 的ip代理约定格式
 
-headers={
-    'Host':'movie.douban.com',
-    'User-Agent':'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
-    'cookie':'bid=uVCOdCZRTrM; douban-fav-remind=1; __utmz=30149280.1603808051.2.2.utmcsr=google|utmccn=(organic)|utmcmd=organic|utmctr=(not%20provided); __gads=ID=7ca757265e2366c5-22ded2176ac40059:T=1603808052:RT=1603808052:S=ALNI_MYZsGZJ8XXb1oU4zxzpMzGdK61LFA; _pk_ses.100001.4cf6=*; __utma=30149280.1867171825.1603588354.1603808051.1612839506.3; __utmc=30149280; __utmb=223695111.0.10.1612839506; __utma=223695111.788421403.1612839506.1612839506.1612839506.1; __utmz=223695111.1612839506.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none); __utmc=223695111; ap_v=0,6.0; __utmt=1; dbcl2="165593539:LvLaPIrgug0"; ck=ZbYm; push_noty_num=0; push_doumail_num=0; __utmv=30149280.16559; __utmb=30149280.6.10.1612839506; _pk_id.100001.4cf6=e2e8bde436a03ad7.1612839506.1.1612842801.1612839506.',
-    'accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-    'accept-encoding': 'gzip, deflate, br',
-    'accept-language': 'zh-CN,zh;q=0.9',
-}
-url='https://movie.douban.com/top250'
-
 # 使用随机 IP 请求页面
 def request_with_random_ip(url):
+    # 设置请求头
+    headers={
+        'Host':'movie.douban.com',
+        'User-Agent':'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
+        'cookie':'bid=uVCOdCZRTrM; douban-fav-remind=1; __utmz=30149280.1603808051.2.2.utmcsr=google|utmccn=(organic)|utmcmd=organic|utmctr=(not%20provided); __gads=ID=7ca757265e2366c5-22ded2176ac40059:T=1603808052:RT=1603808052:S=ALNI_MYZsGZJ8XXb1oU4zxzpMzGdK61LFA; _pk_ses.100001.4cf6=*; __utma=30149280.1867171825.1603588354.1603808051.1612839506.3; __utmc=30149280; __utmb=223695111.0.10.1612839506; __utma=223695111.788421403.1612839506.1612839506.1612839506.1; __utmz=223695111.1612839506.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none); __utmc=223695111; ap_v=0,6.0; __utmt=1; dbcl2="165593539:LvLaPIrgug0"; ck=ZbYm; push_noty_num=0; push_doumail_num=0; __utmv=30149280.16559; __utmb=30149280.6.10.1612839506; _pk_id.100001.4cf6=e2e8bde436a03ad7.1612839506.1.1612842801.1612839506.',
+        'accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'accept-encoding': 'gzip, deflate, br',
+        'accept-language': 'zh-CN,zh;q=0.9',
+    }
+
     # 每次请求前随机选择新的IP代理
     proxy = get_ip()
     print(f"使用代理: {proxy}")
@@ -317,7 +318,7 @@ def get_movie_info(movie_soup, number, movie_url):
         print(f"片长: {runtime}")
         print(f"又名: {aka}")
         print(f"IMDb编号: {imdb}")
-        print("-" * 105)  # 添加分隔线
+        print("-" * NUM_DASH)  # 添加分隔线
 
         # 传入当前电影ID和电影页面对象
         comment_objects = crawl_comment(number, movie_soup, movie_url)
@@ -343,23 +344,25 @@ def crawl_comment(movie_id, movie_soup, movie_url):
             print(f"未找到评论区域")
             return []
             
-        hot_comments = comments_section.find('div', attrs={'id':'hot-comments'})
-        if not hot_comments:
-            print(f"未找到热门评论区域")
+        mod_comments = comments_section.find('div', attrs={'class':'mod-hd'})
+        if not mod_comments:
+            print(f"未找到评论区域")
             return []
             
-        comment_link = hot_comments.find('a', attrs={'href':True})
+        comment_link_area = mod_comments.find('span', attrs={'class':'pl'})
+        if not comment_link_area:
+            print(f"未找到评论链接")
+            return []
+
+        comment_link = comment_link_area.find('a', attrs={'href':True})
         if not comment_link:
             print(f"未找到评论链接")
             return []
             
         relative_comment_url = comment_link['href']
         
-        # 处理URL拼接
-        comment_url_without_http = movie_url + relative_comment_url
-        
         # 确保URL以http开头
-        comment_url = f"http://{comment_url_without_http}" if not comment_url_without_http.startswith('http') else comment_url_without_http
+        comment_url = f"http://{relative_comment_url}" if not relative_comment_url.startswith('http') else relative_comment_url
         
         print(f"访问评论页面: {comment_url}")
         detail_request = request_with_random_ip(comment_url)
@@ -380,8 +383,14 @@ def crawl_comment(movie_id, movie_soup, movie_url):
         # 分页爬取评论
         while(count < 60):
             try:
+                # 获取评论页面
+                comment_base=comment_soup.find('div', attrs={'id':'comments','class':'mod-bd'})
+                if not comment_base:
+                    print(f"未找到评论区域")
+                    break
+
                 # 获取分页器
-                paginator = comment_soup.find('div', attrs={'id':'paginator', 'class':'center'})
+                paginator = comment_base.find('div', attrs={'id':'paginator', 'class':'center'})
                 if not paginator:
                     print(f"没有找到分页器，停止获取更多评论")
                     break
@@ -399,26 +408,14 @@ def crawl_comment(movie_id, movie_soup, movie_url):
                     print(f"下一页使用JavaScript处理，停止爬取")
                     break
                 
-                # 正确处理URL拼接
-                if relative_next_url.startswith('http'):
-                    next_url = relative_next_url
-                elif relative_next_url.startswith('/'):
-                    next_url = f"https://movie.douban.com{relative_next_url}"
-                else:
-                    # 从当前评论页URL提取基础路径
-                    from urllib.parse import urlparse, urljoin
-                    # 使用评论页的URL域名和路径作为基础URL
-                    parsed_url = urlparse(comment_url)
-                    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-                    # 移除文件名部分，只保留路径
-                    if '/' in base_url.rstrip('/'):
-                        base_url = base_url.rsplit('/', 1)[0] + '/'
-                    next_url = urljoin(base_url, relative_next_url)
+                # 处理URL拼接
+                next_url_without_http = urljoin(comment_url, relative_next_url)
+                
+                # 确保URL以http开头
+                next_url = f"http://{next_url_without_http}" if not next_url_without_http.startswith('http') else next_url_without_http
                 
                 print(f"访问下一页评论: {next_url}")
                 # 添加随机延时，避免请求过快
-                import time, random
-                from config import START_TIME, END_TIME
                 time.sleep(random.randint(START_TIME, END_TIME))
                 
                 detail_request = request_with_random_ip(next_url)
@@ -460,7 +457,7 @@ def crawl_comment(movie_id, movie_soup, movie_url):
             print(f"评论星级: {comment_objects[0].star}")
             print(f"评论时间: {comment_objects[0].comment_time}")
             print(f"评论票数: {comment_objects[0].comment_vote}")
-            print("-" * 105)  # 添加分隔线
+            print("-" * NUM_DASH)  # 添加分隔线
         return comment_objects
     else:
         print("未获取到评论")
@@ -582,19 +579,24 @@ def save_movie_to_mysql(movie, conn=None, cursor=None):
         )
         ''')
         
-        # 创建评论表
+        # 提交电影表创建事务
+        conn.commit()
+        print("成功创建 movies 表并保存电影数据")
+        
+        # 创建评论表 - 尝试删除并重新创建如果已存在
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS comments (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            movie_id INT NOT NULL,           -- 外键关联到电影表
+            movie_id INT NOT NULL,           -- 关联到电影表
             comment_text TEXT NOT NULL,      -- 评论内容
             comment_star VARCHAR(20),       -- 评分
             comment_time VARCHAR(50),        -- 评论时间
             comment_person VARCHAR(100),     -- 评论人
-            comment_vote INT,                -- 评论有用数
-            FOREIGN KEY (movie_id) REFERENCES movies(id) ON DELETE CASCADE
+            comment_vote INT                 -- 评论有用数
         )
         ''')
+        conn.commit()
+        print("成功创建 comments 表并保存评论数据")
 
         # 准备数据 - 将列表转换为字符串
         directors_str = ','.join(movie.director) if movie.director else ''
@@ -611,12 +613,21 @@ def save_movie_to_mysql(movie, conn=None, cursor=None):
                       types, country, language, release_date, runtime, aka, imdb) 
               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         
+        # 检查是否是评论对象列表，如果是，使用空字符串
+        comments_text = ""
+        if isinstance(movie.comments, list):
+            # 如果是评论对象列表，后面会单独保存到comments表
+            print("评论内容作为对象列表处理，将单独保存")
+        elif movie.comments is not None:
+            # 如果是文本，直接使用
+            comments_text = str(movie.comments)
+            
         cursor.execute(sql, (
             movie.title, 
             movie.year, 
             movie.rating, 
             movie.comments_num,
-            movie.comments,  # 这里现在是评论内容字段，不是对象列表
+            comments_text,  # 确保这里存入的是文本而不是对象列表
             directors_str,
             script_str,
             actors_str,
