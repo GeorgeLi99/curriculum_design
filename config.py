@@ -1,0 +1,2 @@
+PASSWORD='123456'
+DATABASE='douban'
