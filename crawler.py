@@ -238,6 +238,11 @@ def crawl_page(url,page=0):
         
             # 对每部电影进行处理
             for movie in movie_list:
+                # 提取电影排名
+                number_elem = movie.find('em')
+                number = number_elem.text.strip() if number_elem else "未知"
+                print(f"电影排名: {number}")
+                
                 # 提取电影详情页URL
                 movie_url = movie.find('a', attrs={'href': True})['href']
                 print(f"发现电影URL: {movie_url}")
@@ -265,7 +270,7 @@ def crawl_page(url,page=0):
             delay = random.randint(START_TIME, END_TIME)
             print(f"延时 {delay} 秒...")
             time.sleep(delay)
-            
+
         except Exception as e:
             print(f"解析页面失败: {e}")
     else:
