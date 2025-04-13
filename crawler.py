@@ -22,7 +22,7 @@ class Movie:
         self.rating = rating
         # 电影评论数
         self.comments_num = comments_num
-        # 电影评论内容
+        # 电影评论对象
         self.comments = comments    
         # 电影评分权重
         self.weight = weight
@@ -49,9 +49,7 @@ class Movie:
         # IMDb编号
         self.imdb = imdb
 class Comment:
-    def __init__(self,id,movie_id,comment,star,comment_time,comment_person,comment_use):
-        # 评论ID
-        self.id = id
+    def __init__(self,movie_id,comment,star,comment_time,comment_person,comment_vote):
         # 电影ID
         self.movie_id = movie_id
         # 评论内容
@@ -62,8 +60,8 @@ class Comment:
         self.comment_time = comment_time
         # 评论人
         self.comment_person = comment_person
-        # 评论使用
-        self.comment_use = comment_use
+        # 评论票数
+        self.comment_vote = comment_vote
 
 ip_list=[]
 with open('ip.txt','r') as file:
@@ -107,6 +105,61 @@ def request_with_random_ip(url):
     except Exception as e:
         print(f"请求异常: {e}")
         return None
+
+def get_comment_info(comment_soup, movie_id):
+    # 从评论页提取评论完整信息
+    try:
+        # 提取评论投票数
+        comment_vote_span = comment_soup.find('span', attrs={'class':'comment-vote'})
+        if comment_vote_span:
+            vote_count_span = comment_vote_span.find('span', attrs={'class':'votes vote-count'})
+            comment_vote = vote_count_span.text.strip() if vote_count_span else "0"
+        else:
+            comment_vote = "0"
+        
+        # 提取评论信息区域
+        comment_info = comment_soup.find('span', attrs={'class':'comment-info'})
+        
+        # 提取评论人
+        comment_person_tag = comment_info.find('a', attrs={'href':True}) if comment_info else None
+        comment_person = comment_person_tag.text.strip() if comment_person_tag else "未知用户"
+        
+        # 提取评分 - 注意星级的类名通常包含星级的信息，如“allstar50 rating”
+        star_span = comment_info.find('span', attrs={'class': lambda c: c and 'rating' in c}) if comment_info else None
+        if star_span:
+            # 从类名中提取星级，例如“allstar50”表示5星
+            star_class = star_span.get('class', [])
+            star_rating = None
+            for cls in star_class:
+                if cls.startswith('allstar'):
+                    try:
+                        # 尝试将“allstar50”转换为“5星”
+                        rating_num = int(cls.replace('allstar', '')) / 10
+                        star_rating = f"{rating_num}星"
+                        break
+                    except:
+                        pass
+            comment_star = star_rating or star_span.text.strip() or "无评分"
+        else:
+            comment_star = "无评分"
+        
+        # 提取评论时间
+        time_span = comment_info.find('span', attrs={'class':'comment-time'}) if comment_info else None
+        comment_time = time_span.get('title', time_span.text.strip()) if time_span else "未知时间"
+        
+        # 提取评论内容
+        content_p = comment_soup.find('p', attrs={'class':'comment-content'})
+        if content_p:
+            short_span = content_p.find('span', attrs={'class':'short'})
+            comment = short_span.text.strip() if short_span else content_p.text.strip()
+        else:
+            comment = "无评论内容"
+        
+        return Comment(movie_id, comment, comment_star, comment_time, comment_person, comment_vote)
+    except Exception as e:
+        print(f"解析评论信息失败: {e}")
+        # 返回一个带有默认值的评论对象
+        return Comment(movie_id, "解析失败", "无评分", "未知时间", "未知用户", "0")
 
 # 预先定义电影信息提取函数
 def get_movie_info(movie_soup, number, movie_url):
@@ -266,13 +319,43 @@ def get_movie_info(movie_soup, number, movie_url):
         print(f"IMDb编号: {imdb}")
         print("-" * 105)  # 添加分隔线
 
+        # 传入当前电影ID和电影页面对象
+        comment_objects = crawl_comment(number, movie_soup)
+        if comment_objects:
+            print(f"共获取了 {len(comment_objects)} 条评论")
+        else:
+            print("未获取到评论")
+
         # 返回完整的实现可以返回电影对象
         return Movie(number, title, year, rating, comments_num, weight, similar, director, script, actors, types,
-                     country, language, release_date, runtime, aka, imdb)
+                     country, language, release_date, runtime, aka, imdb, comment_objects)
 
     except Exception as e:
         print(f"解析电影信息失败: {e}")
         return None
+
+def crawl_comment(movie_id, movie_soup):
+    comment_url=movie_soup.find('div',attrs={'id':'comments-section'}).find('div',attrs={'id':'hot-comments'}).find('a',attrs={'href':True})['href']
+    detail_request=request_with_random_ip(comment_url)
+    if detail_request:
+        comment_soup=bs4.BeautifulSoup(detail_request.text,'html.parser')
+        comments=comment_soup.find_all('div',attrs={'class':'comment-item','data-cid':True})
+        
+        # 获取所有评论，但只打印第一个
+        comment_objects = []
+        for comment in comments:
+            comment_object = get_comment_info(comment, movie_id)
+            comment_objects.append(comment_object)
+        
+        # 打印第一个评论
+        if comment_objects and len(comment_objects) > 0:
+            print(f"共获取了 {len(comment_objects)} 条评论，显示第一条：")
+            print(f"评论人: {comment_objects[0].comment_person}")
+            print(f"评论内容: {comment_objects[0].comment}")
+            print(f"评论星级: {comment_objects[0].star}")
+            print(f"评论时间: {comment_objects[0].comment_time}")
+            print(f"评论票数: {comment_objects[0].comment_vote}")
+            print("-" * 105)  # 添加分隔线
 
 def crawl_page(url,page=0):
     # 使用随机代理发送请求
