@@ -5,8 +5,12 @@ USER='root'
 HOST='localhost'
 
 # 爬虫延时设置（秒）
-START_TIME=1
-END_TIME=2
+START_TIME=3
+END_TIME=5
+
+# 全局请求延时（秒）
+REQUEST_MIN_DELAY = 3
+REQUEST_MAX_DELAY = 7
 
 # 显示格式
 NUM_DASH=130

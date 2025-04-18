@@ -12,7 +12,7 @@ from config import *
 
 class Movie:
     def __init__(self, number, title, year, rating, comments_num, weight, similar, director, script, actors, types, 
-                 country=None, language=None, release_date=None, runtime=None, aka=None, imdb=None, comments=None):
+                 country=None, language=None, release_date=None, runtime=None, aka=None, imdb=None, comments=None, official_site=None):
         # 电影排名
         self.number = number
         # 电影标题
@@ -49,6 +49,8 @@ class Movie:
         self.aka = aka
         # IMDb编号
         self.imdb = imdb
+        # 官方网站
+        self.official_site = official_site
 
 class Comment:
     def __init__(self,movie_id,comment,star,comment_time,comment_person,comment_vote):
@@ -79,8 +81,38 @@ def get_ip():
     print(proxies)
     return proxies  # request 的ip代理约定格式
 
-# 使用随机 IP 请求页面
-def request_with_random_ip(url):
+# 使用随机 IP、可选延时请求页面
+def request_with_random_ip(url, referer=None, min_delay=REQUEST_MIN_DELAY, max_delay=REQUEST_MAX_DELAY, headers=None):
+    '''
+    使用随机代理、可选延时请求页面
+    Args:
+        url (str): 目标URL
+        referer (str): 可选，Referer头
+        min_delay/max_delay: 随机延时区间（秒）
+        headers (dict): 可选自定义请求头
+    Returns:
+        requests.Response | None
+    '''
+    req_headers = HEADERS.copy() if headers is None else headers
+    if referer:
+        req_headers['Referer'] = referer
+    proxy = get_ip()
+    # 延时参数优先使用传参，否则用配置文件
+    delay = random.uniform(min_delay, max_delay)
+    try:
+        res = requests.get(url, headers=req_headers, proxies=proxy, timeout=REQUEST_TIMEOUT, verify=VERIFY_SSL)
+        print(f"请求 {url}，状态码: {res.status_code}，延时 {delay:.2f}s")
+        time.sleep(delay)
+        if res.status_code == 200:
+            return res
+        else:
+            print(f"请求失败: 状态码 {res.status_code}")
+            return None
+    except Exception as e:
+        print(f"请求异常: {e}")
+        return None
+
+def request_with_random_ip(url, headers=None):
     """使用随机代理IP发送HTTP请求
     
     Args:
@@ -234,6 +266,15 @@ def get_movie_info(movie_soup, number, movie_url):
             print("未找到电影信息区域")
             return None
         
+        # 提取官方网站（如有）
+        official_site = None
+        if info_div:
+            # 查找所有 <a> 标签，rel=nofollow, target=_blank
+            official_links = info_div.find_all('a', attrs={'rel': 'nofollow', 'target': '_blank'})
+            if official_links:
+                # 取第一个外链地址
+                official_site = official_links[0].get('href')
+
         # 创建电影剧组信息字典
         crew_info_dict = {}
         director = []
@@ -306,6 +347,8 @@ def get_movie_info(movie_soup, number, movie_url):
         print(f"电影评分: {rating}")
         print(f"电影评论数: {comments_num}")
         print(f"电影权重: {weight}")
+        if official_site:
+            print(f"官方网站: {official_site}")
         if similar:
             print(f"同类电影排名: 超过 {similar}")
         else:
@@ -331,7 +374,7 @@ def get_movie_info(movie_soup, number, movie_url):
 
         # 返回完整的实现可以返回电影对象
         return Movie(number, title, year, rating, comments_num, weight, similar, director, script, actors, types,
-                     country, language, release_date, runtime, aka, imdb, comment_objects)
+                     country, language, release_date, runtime, aka, imdb, comment_objects, official_site)
 
     except Exception as e:
         print(f"解析电影信息失败: {e}")
@@ -577,7 +620,8 @@ def save_movie_to_mysql(movie, conn=None, cursor=None):
             release_date TEXT,
             runtime VARCHAR(50),
             aka TEXT,
-            imdb VARCHAR(20)
+            imdb VARCHAR(20),
+            official_site VARCHAR(255)
         )
         ''')
         
@@ -612,8 +656,8 @@ def save_movie_to_mysql(movie, conn=None, cursor=None):
 
         # 插入数据
         sql = """INSERT INTO movies (title, year, rating, comments_num, comments, director, script, actors, 
-                      types, country, language, release_date, runtime, aka, imdb) 
-              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                      types, country, language, release_date, runtime, aka, imdb, official_site) 
+              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         
         # 检查是否是评论对象列表，如果是，使用空字符串
         comments_text = ""
@@ -639,7 +683,8 @@ def save_movie_to_mysql(movie, conn=None, cursor=None):
             release_date_str,
             movie.runtime,
             aka_str,
-            movie.imdb
+            movie.imdb,
+            movie.official_site
         ))
 
         # 提交事务
